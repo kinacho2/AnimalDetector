@@ -32,4 +32,16 @@ def open_folder():
     return folder_path
 
 
+def clean_temp_folder(folder_name, path):
+    base_path = Path(path)
+    new_folder = base_path / folder_name
+    folder = Path(new_folder)
+
+    if folder.exists():
+        shutil.rmtree(folder)
+
+    new_folder.mkdir(parents=True, exist_ok=True)
+
+    return new_folder
+
 
