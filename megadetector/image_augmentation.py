@@ -1,6 +1,6 @@
 import os
 import random
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter
 
 class AugmentationConfig:
     def __init__(
@@ -9,15 +9,21 @@ class AugmentationConfig:
         contrast_range=(0.8, 1.2),
         brightness_range=(0.8, 1.2),
         saturation_range=(0.8, 1.2),
-        rotation_prob=0.0,
+        zoom_range=(0.8, 1.2),
+        blur_range=(0.0, 1.5),
+        blur_prob=0.5,
+        flip_prob=0.5,
         use_random=True
     ):
         self.num_random = num_random
         self.contrast_range = contrast_range
         self.brightness_range = brightness_range
         self.saturation_range = saturation_range
+        self.zoom_range = zoom_range
+        self.blur_range = blur_range
+        self.blur_prob = blur_prob
         self.use_random = use_random
-        self.rotation_prob = rotation_prob
+        self.flip_prob = flip_prob
 
 
 def load_image(path):
@@ -37,8 +43,33 @@ def get_images_from_folder(folder):
         if f.lower().endswith(valid_ext)
     ]
 
-def rotate_image(img, angle):
-    return img.rotate(angle, expand=True)
+def flip_horizontal(img):
+    return img.transpose(Image.FLIP_LEFT_RIGHT)
+
+def flip_vertical(img):
+    return img.transpose(Image.FLIP_TOP_BOTTOM)
+
+def apply_zoom(img, zoom_factor):
+    w, h = img.size
+    new_w = int(w * zoom_factor)
+    new_h = int(h * zoom_factor)
+    resized = img.resize((new_w, new_h), Image.BICUBIC)
+
+    if zoom_factor > 1.0:
+        left = (new_w - w) // 2
+        top = (new_h - h) // 2
+        right = left + w
+        bottom = top + h
+        return resized.crop((left, top, right, bottom))
+    else:
+        new_img = Image.new("RGB", (w, h))
+        left = (w - new_w) // 2
+        top = (h - new_h) // 2
+        new_img.paste(resized, (left, top))
+        return new_img
+
+def apply_blur(img, radius):
+    return img.filter(ImageFilter.GaussianBlur(radius))
 
 def apply_enhancements(img, contrast=1.0, brightness=1.0, saturation=1.0):
     img = ImageEnhance.Contrast(img).enhance(contrast)
@@ -52,43 +83,22 @@ def get_random_factor(value_range):
 def format_float(value):
     return f"{value:.2f}"
 
-def build_rotation_name(base_name, angle):
-    return f"{base_name}_R{angle}.jpg"
-
-def build_augmentation_name(base_name, contrast, brightness, saturation):
-    return (
-        f"{base_name}_"
-        f"C{format_float(contrast)}_"
-        f"B{format_float(brightness)}_"
-        f"S{format_float(saturation)}.jpg"
-    )
-
-def generate_rotations(img, base_name, output_dir):
-    angles = [90, 180, 270]
-    generated_paths = []
-
-    for angle in angles:
-        rotated = rotate_image(img, angle)
-        filename = build_rotation_name(base_name, angle)
-        output_path = os.path.join(output_dir, filename)
-        save_image(rotated, output_path)
-        generated_paths.append(output_path)
-
-    return generated_paths
-
 def generate_random_variants(img, base_name, output_dir, config: AugmentationConfig):
     generated_paths = []
-    angles = [0, 90, 180, 270]
 
     for _ in range(config.num_random):
         if config.use_random:
             contrast = get_random_factor(config.contrast_range)
             brightness = get_random_factor(config.brightness_range)
             saturation = get_random_factor(config.saturation_range)
+            zoom = get_random_factor(config.zoom_range)
+            blur = get_random_factor(config.blur_range)
         else:
             contrast = sum(config.contrast_range) / 2
             brightness = sum(config.brightness_range) / 2
             saturation = sum(config.saturation_range) / 2
+            zoom = sum(config.zoom_range) / 2
+            blur = sum(config.blur_range) / 2
 
         new_img = apply_enhancements(
             img,
@@ -97,21 +107,35 @@ def generate_random_variants(img, base_name, output_dir, config: AugmentationCon
             saturation=saturation
         )
 
-        angle = 0
-        if random.random() < config.rotation_prob:
-            angle = random.choice(angles)
-            if angle != 0:
-                new_img = rotate_image(new_img, angle)
+        new_img = apply_zoom(new_img, zoom)
+
+        blur_tag = ""
+        if random.random() < config.blur_prob and blur > 0:
+            new_img = apply_blur(new_img, blur)
+            blur_tag = f"_BL{format_float(blur)}"
+
+        flip_tag = ""
+        if random.random() < config.flip_prob:
+            flip_type = random.choice(["H", "V"])
+            if flip_type == "H":
+                new_img = flip_horizontal(new_img)
+            else:
+                new_img = flip_vertical(new_img)
+            flip_tag = f"_F{flip_type}"
 
         filename = (
             f"{base_name}_"
             f"C{format_float(contrast)}_"
             f"B{format_float(brightness)}_"
-            f"S{format_float(saturation)}"
+            f"S{format_float(saturation)}_"
+            f"Z{format_float(zoom)}"
         )
 
-        if angle != 0:
-            filename += f"_R{angle}"
+        if blur_tag:
+            filename += blur_tag
+
+        if flip_tag:
+            filename += flip_tag
 
         filename += ".jpg"
 
@@ -132,7 +156,6 @@ def process_images(input_dir, output_dir, config: AugmentationConfig):
 
         try:
             img = load_image(input_path)
-            generate_rotations(img, base_name, output_dir)
             generate_random_variants(img, base_name, output_dir, config)
             print(f"Procesada: {img_name}")
         except Exception as e:
@@ -153,11 +176,14 @@ if __name__ == "__main__":
     clear_output_dir(output_folder)
 
     config = AugmentationConfig(
-        num_random=20,
-        contrast_range = (0.3, 1.8),
-        brightness_range = (0.3, 1.8),
-        saturation_range = (0.3, 1.8),
-        rotation_prob=0.3,
+        num_random=10,
+        contrast_range=(0.3, 1.8),
+        brightness_range=(0.3, 1.8),
+        saturation_range=(0.3, 1.8),
+        zoom_range=(0.7, 1.3),
+        blur_range=(0.0, 1.2),
+        blur_prob=0.6,
+        flip_prob=0.5,
         use_random=True
     )
 
