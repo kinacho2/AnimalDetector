@@ -382,11 +382,6 @@ def prepare_instances_dict(  # pylint: disable=too-many-positional-arguments
         "]"
     )
     inputs = eval(inputs_str)  # pylint: disable=eval-used
-    if not only_one_true(*inputs):
-        raise ValueError(
-            f"Expected exactly one of {inputs_str} to be provided. "
-            f"Received: {inputs}."
-        )
 
     if instances_json is not None:
         instances_dict = load_json(instances_json)

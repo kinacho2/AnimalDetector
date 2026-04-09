@@ -265,9 +265,8 @@ def local_file_exists(filepath: Optional[str]) -> bool:
     return Path(filepath).exists()
 
 
-def main(argv: list[str]) -> None:
-    del argv  # Unused.
-
+def classify(image_paths, detections) -> dict:
+    
     # Check for a valid combination of components to run.
     components = [_CLASSIFIER_ONLY, _DETECTOR_ONLY, _ENSEMBLE_ONLY]
     components_names = [f"--{c.name}" for c in components]
@@ -303,20 +302,8 @@ def main(argv: list[str]) -> None:
     inputs_strings = [
         f"{name}={value}" for name, value in zip(inputs_names, inputs_values)
     ]
-    if not only_one_true(*inputs_values):
-        raise ValueError(
-            f"Expected exactly one of [{', '.join(inputs_names)}] to be provided. "
-            f"Received: [{', '.join(inputs_strings)}]."
-        )
-    instances_dict = prepare_instances_dict(
-        instances_json=_INSTANCES_JSON.value,
-        filepaths=list(_FILEPATHS.value) if _FILEPATHS.value else None,
-        filepaths_txt=_FILEPATHS_TXT.value,
-        folders=list(_FOLDERS.value) if _FOLDERS.value else None,
-        folders_txt=_FOLDERS_TXT.value,
-        country=_COUNTRY.value,
-        admin1_region=_ADMIN1_REGION.value,
-    )
+    
+    instances_dict = { "instances": image_paths }
 
     # Check the compatibility of output predictions with existing partial predictions.
     if _PREDICTIONS_JSON.value:
@@ -390,9 +377,11 @@ def main(argv: list[str]) -> None:
         _DETECTIONS_JSON.value, instances_dict["instances"]
     )
 
+    detections_dict = detections
+
     # Set running mode.
     run_mode: Literal["multi_thread", "multi_process"] = _RUN_MODE.value  # type: ignore
-    mp.set_start_method("spawn")
+    #mp.set_start_method("spawn")
 
     # Make predictions.
     model = SpeciesNet(
@@ -408,7 +397,7 @@ def main(argv: list[str]) -> None:
     if hasattr(model, "classifier") and not hasattr(model, "detector"):
         if (
             model.classifier.model_info.type_ == "always_crop"
-            and not local_file_exists(_DETECTIONS_JSON.value)
+            and not local_file_exists(_DETECTIONS_JSON.value) and instances_dict is None
         ):
             if not say_yes_to_continue(
                 question=(
@@ -465,12 +454,12 @@ def main(argv: list[str]) -> None:
             progress_bars=_PROGRESS_BARS.value,
             predictions_json=_PREDICTIONS_JSON.value,
         )
+
     if predictions_dict is not None:
         print(
             "Predictions:\n"
             + json.dumps(predictions_dict, ensure_ascii=False, indent=4)
         )
 
+    return predictions_dict
 
-if __name__ == "__main__":
-    app.run(main)

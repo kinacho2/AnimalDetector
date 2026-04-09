@@ -10,7 +10,7 @@ def create_temp_folder(folder_name, path):
 
     new_folder.mkdir(parents=True, exist_ok=True)
 
-    return new_folder
+    return str(new_folder).replace('\\','/')
     
 def copy_file(path, to_dir):
     if not os.path.isfile(path):
