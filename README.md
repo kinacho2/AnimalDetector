@@ -15,9 +15,8 @@ pip install reverse_geocoder
 
 pip install "setuptools<70"
 
-pip install "onnx<1.13" //capaz no es necesario
+pip install "protobuf<=3.20.1"
 
-pip install "protobuf<=3.20.1" //capaz no es necesario
+pip install "onnx<1.13"
 
-pip install "protobuf==3.20.1" onnx2torch 
 
