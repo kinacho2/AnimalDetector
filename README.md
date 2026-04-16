@@ -3,6 +3,7 @@ Setup megadetector:
 conda create -n animals_detector python=3.9 pip -y
 
 conda activate animals_detector
+
 pip install megadetector
 
 pip install cloudpathlib
