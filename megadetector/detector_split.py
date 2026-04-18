@@ -36,7 +36,7 @@ def main():
         if(animal_detected(file, 0.5)):
             animals.append(result)
 
-    detections = write_results_to_file(animals, output_file, relative_path_base=folder, detector_file=model_name)
+    #Clasify confidency //TODO
 
     image_paths = [
         {
@@ -52,11 +52,7 @@ def main():
     FLAGS(["program_name", folders_param])
     FLAGS(["program_name", "--classifier_only"])
 
-
-    classified = run_model.classify(image_paths, detections)
-
-    for item in classified:
-        print("cosas")
+    classified = run_model.classify(image_paths, animals)
 
     ct_utils.write_json(output_classified_file, classified, force_str=True)
 

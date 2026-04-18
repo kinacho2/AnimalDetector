@@ -53,7 +53,7 @@ from speciesnet.utils import save_predictions
 StrPath = Union[str, Path]
 DetectorInput = tuple[str, Optional[PreprocessedImage]]
 BBoxOutput = tuple[str, list[BBox]]
-ClassifierInput = tuple[str, Optional[PreprocessedImage]]
+ClassifierInput = tuple[str, Optional[PreprocessedImage], BBox]
 
 # Register SpeciesNet model components with the SyncManager to be able to safely share
 # them between processes.
@@ -280,12 +280,13 @@ def _prepare_classifier_input(
 
     filepath, bboxes = bboxes_queue.get()
     img = load_rgb_image(filepath)
-    try:
-        img = classifier.preprocess(img, bboxes=bboxes)
-        classifier_queue.put((filepath, img))
-    except:
-        classifier_queue.put((filepath, None))
-        raise
+    for i in range(0, len(bboxes)):
+        try:
+            cropimg = classifier.preprocess(img, bboxes=bboxes, index=i)
+            classifier_queue.put((filepath, cropimg, bboxes[i]))
+        except:
+            classifier_queue.put((filepath, None, bboxes))
+            raise
 
 
 def _run_classifier(
@@ -310,13 +311,14 @@ def _run_classifier(
             Batch size for inference.
 
     """
-
     input_tuples = [input_queue.get() for _ in range(batch_size)]
+
     filepaths = [t[0] for t in input_tuples]
     imgs = [t[1] for t in input_tuples]
-    predictions = classifier.batch_predict(filepaths, imgs)
-    for filepath, prediction in zip(filepaths, predictions):
-        results_dict[filepath] = prediction
+    bboxes = [t[2] for t in input_tuples]
+    predictions = classifier.batch_predict(filepaths, imgs, bboxes)
+    for filepath, bbox, prediction in zip(filepaths, bboxes, predictions):
+        results_dict[(filepath, bbox)] = prediction
 
 
 def _find_admin1_region(  # pylint: disable=too-many-positional-arguments
@@ -911,6 +913,8 @@ class SpeciesNet:
                 error_callback=_error_callback,
             )
 
+        common_pool.close()
+        common_pool.join()
         # Run detector inference asynchronously.
         for _ in range(num_instances_to_process):
             detector_pool.apply_async(
@@ -935,10 +939,9 @@ class SpeciesNet:
             )
 
         # Wait for all workers to finish.
-        common_pool.close()
         detector_pool.close()
         classifier_pool.close()
-        common_pool.join()
+        
         detector_pool.join()
         classifier_pool.join()
 
@@ -950,16 +953,7 @@ class SpeciesNet:
             _stop_periodic_results_saving(periodic_saver)
 
         # Ensemble predictions.
-        return _combine_results(
-            ensemble=self.ensemble,
-            filepaths=filepaths,
-            classifier_results=classifier_results,
-            detector_results=detector_results,
-            geolocation_results=geolocation_results,
-            partial_predictions=partial_predictions,
-            predictions_json=predictions_json,
-            save_lock=save_lock,
-        )
+        return classifier_results
 
     def _predict_using_thread_pools(
         self,
@@ -1027,12 +1021,18 @@ class SpeciesNet:
         partial_predictions, instances_to_process = load_partial_predictions(
             predictions_json, instances
         )
+        
+        num_of_detections = 0
+
+        for dt in detections_dict:
+            num_of_detections = num_of_detections + len(detections_dict[dt])
+
         partial_predictions = new_dict_fn(partial_predictions)
-        num_instances_to_process = len(instances_to_process)
-        num_batches = num_instances_to_process // batch_size + min(
-            num_instances_to_process % batch_size, 1
+
+        num_batches = num_of_detections // batch_size + min(
+            num_of_detections % batch_size, 1
         )
-        last_batch_size = num_instances_to_process % batch_size
+        last_batch_size = num_of_detections % batch_size
         if not last_batch_size:
             last_batch_size = batch_size
 
@@ -1055,7 +1055,7 @@ class SpeciesNet:
             enabled=(
                 ["classifier_preprocess", "classifier_predict"] if progress_bars else []
             ),
-            total=num_instances_to_process,
+            total=num_of_detections,
             batches=num_batches,
             rlock=new_rlock_fn(),
         )
@@ -1069,13 +1069,13 @@ class SpeciesNet:
         )  # One single worker to run classifier inference.
         bboxes_queue = new_queue_fn()  # Unlimited number of bboxes to store in memory.
         classifier_queue = new_queue_fn(
-            max(2 * batch_size, 64)
+            256
         )  # Limited number of images to store in memory.
 
         # Preprocess images for classifier.
         for instance in instances_to_process:
             filepath = instance["filepath"]
-            detections = detections_dict.get(filepath, {}).get("detections", [])
+            detections = detections_dict.get(filepath, {})
             bboxes_queue.put((filepath, [BBox(*det["bbox"]) for det in detections]))
             common_pool.apply_async(
                 _prepare_classifier_input,
@@ -1083,6 +1083,8 @@ class SpeciesNet:
                 callback=lambda _: progress.update("classifier_preprocess"),
                 error_callback=_error_callback,
             )
+
+        
 
         # Run classifier.
         for batch_idx in range(num_batches):
@@ -1099,8 +1101,8 @@ class SpeciesNet:
             )
 
         # Wait for all workers to finish.
-        common_pool.close()
         classifier_pool.close()
+        common_pool.close()
         common_pool.join()
         classifier_pool.join()
 
@@ -1112,14 +1114,7 @@ class SpeciesNet:
             _stop_periodic_results_saving(periodic_saver)
 
         # Return predictions.
-        return _merge_results(
-            filepaths=filepaths,
-            new_predictions=classifier_results,
-            partial_predictions=partial_predictions,
-            failure_type=Failure.CLASSIFIER,
-            predictions_json=predictions_json,
-            save_lock=save_lock,
-        )
+        return [classifier_results[(path, box)] for (path, box) in classifier_results]
 
     def _classify_using_thread_pools(  # pylint: disable=too-many-positional-arguments
         self,

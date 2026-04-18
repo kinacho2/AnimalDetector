@@ -117,6 +117,7 @@ class SpeciesNetClassifier:
         img: Optional[PIL.Image.Image],
         bboxes: Optional[list[BBox]] = None,
         resize: bool = True,
+        index: int = 0
     ) -> Optional[PreprocessedImage]:
         """Preprocesses an image according to this classifier's needs.
 
@@ -151,12 +152,13 @@ class SpeciesNetClassifier:
         if self.model_info.type_ == "always_crop":
             # Crop to top bbox if available, otherwise leave image uncropped.
             if bboxes:
+                bbox = bboxes[index]
                 img_tensor = F.crop(
                     img_tensor,
-                    int(bboxes[0].ymin * img.height),
-                    int(bboxes[0].xmin * img.width),
-                    int(bboxes[0].height * img.height),
-                    int(bboxes[0].width * img.width),
+                    int(bbox.ymin * img.height),
+                    int(bbox.xmin * img.width),
+                    int(bbox.height * img.height),
+                    int(bbox.width * img.width),
                 )
         elif self.model_info.type_ == "full_image":
             # Crop top and bottom of image.
@@ -199,7 +201,7 @@ class SpeciesNetClassifier:
         return self.batch_predict([filepath], [img])[0]
 
     def batch_predict(
-        self, filepaths: list[str], imgs: list[Optional[PreprocessedImage]]
+        self, filepaths: list[str], imgs: list[Optional[PreprocessedImage]], bboxes: list[Optional[BBox]]
     ) -> list[dict[str, Any]]:
         """Runs inference on a batch of preprocessed images.
 
@@ -222,7 +224,8 @@ class SpeciesNetClassifier:
 
         inference_filepaths = []
         batch_arr = []
-        for filepath, img in zip(filepaths, imgs):
+        bboxes_arr = []
+        for filepath, img, bbox in zip(filepaths, imgs, bboxes):
             if img is None:
                 predictions[filepath] = {
                     "filepath": filepath,
@@ -231,6 +234,7 @@ class SpeciesNetClassifier:
             else:
                 inference_filepaths.append(filepath)
                 batch_arr.append(img.arr / 255)
+                bboxes_arr.append(bbox)
         if not batch_arr:
             return list(predictions.values())
         batch_arr = np.stack(batch_arr, axis=0, dtype=np.float32)
@@ -240,12 +244,13 @@ class SpeciesNetClassifier:
         scores = torch.softmax(logits, dim=-1)
         scores, indices = torch.topk(scores, k=5, dim=-1)
 
-        for file_idx, (filepath, scores_arr, indices_arr) in enumerate(
-            zip(inference_filepaths, scores.numpy(), indices.numpy())
+        for file_idx, (filepath, scores_arr, indices_arr, bbox) in enumerate(
+            zip(inference_filepaths, scores.numpy(), indices.numpy(), bboxes_arr)
         ):
 
-            predictions[filepath] = {
+            predictions[(filepath, bbox)] = {
                 "filepath": filepath,
+                "bbox": (bbox.xmin, bbox.ymin, bbox.width, bbox.height),
                 "classifications": {
                     "classes": [self.labels[idx] for idx in indices_arr],
                     "scores": scores_arr.tolist(),
@@ -253,7 +258,7 @@ class SpeciesNetClassifier:
             }
 
             if hasattr(self, "target_idx"):
-                predictions[filepath]["classifications"].update(
+                predictions[(filepath, bbox)]["classifications"].update(
                     {
                         "target_classes": self.target_labels,
                         "target_logits": [
@@ -262,4 +267,4 @@ class SpeciesNetClassifier:
                     }
                 )
 
-        return [predictions[filepath] for filepath in filepaths]
+        return [predictions[(filepath, bbox)] for filepath, bbox in zip(filepaths, bboxes)]

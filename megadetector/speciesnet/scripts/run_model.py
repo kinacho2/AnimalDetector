@@ -377,7 +377,13 @@ def classify(image_paths, detections) -> dict:
         _DETECTIONS_JSON.value, instances_dict["instances"]
     )
 
-    detections_dict = detections
+    detections_dict = dict()
+
+    for elem in detections:
+        det = elem.get("detections")
+        file = elem.get("file")
+        detections_dict[file] = det
+
 
     # Set running mode.
     run_mode: Literal["multi_thread", "multi_process"] = _RUN_MODE.value  # type: ignore
@@ -463,3 +469,5 @@ def classify(image_paths, detections) -> dict:
 
     return predictions_dict
 
+def bbox_to_tuple(bbox):
+    return (bbox.xmin, bbox.ymin, bbox.width, bbox.height)
