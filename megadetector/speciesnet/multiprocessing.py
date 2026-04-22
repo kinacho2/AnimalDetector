@@ -278,12 +278,12 @@ def _prepare_classifier_input(
             Output queue for preprocessed images for classifier inference.
     """
 
-    filepath, bboxes = bboxes_queue.get()
+    filepath, bboxes, confs = bboxes_queue.get()
     img = load_rgb_image(filepath)
     for i in range(0, len(bboxes)):
         try:
             cropimg = classifier.preprocess(img, bboxes=bboxes, index=i)
-            classifier_queue.put((filepath, cropimg, bboxes[i]))
+            classifier_queue.put((filepath, cropimg, bboxes[i], confs[i]))
         except:
             classifier_queue.put((filepath, None, bboxes))
             raise
@@ -316,7 +316,8 @@ def _run_classifier(
     filepaths = [t[0] for t in input_tuples]
     imgs = [t[1] for t in input_tuples]
     bboxes = [t[2] for t in input_tuples]
-    predictions = classifier.batch_predict(filepaths, imgs, bboxes)
+    confs = [t[3] for t in input_tuples]
+    predictions = classifier.batch_predict(filepaths, imgs, bboxes, confs)
     for filepath, bbox, prediction in zip(filepaths, bboxes, predictions):
         results_dict[(filepath, bbox)] = prediction
 
@@ -1076,7 +1077,7 @@ class SpeciesNet:
         for instance in instances_to_process:
             filepath = instance["filepath"]
             detections = detections_dict.get(filepath, {})
-            bboxes_queue.put((filepath, [BBox(*det["bbox"]) for det in detections]))
+            bboxes_queue.put((filepath, [BBox(*det["bbox"]) for det in detections], [det["conf"] for det in detections]))
             common_pool.apply_async(
                 _prepare_classifier_input,
                 args=(self.classifier, bboxes_queue, classifier_queue),

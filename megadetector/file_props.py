@@ -25,15 +25,24 @@ def process_result(result):
 
     return file
 
-def animal_detected(file, conf):
+def animal_detected(file, conf, conf2):
+    result_conf = list()
+    result_conf2 = list()
+    discarded = list()
+    
     for det in file.detections:
-        if det["conf"] < conf:
-            continue
-
         category = int(det["category"])
         if category > 1: #1 = "animal", see also at megadetector/detection/run_detector.DEFAULT_DETECTOR_LABEL_MAP
+            discarded.append(det)
             continue
 
-        return True
+        if det["conf"] < conf:
+            if(det["conf"] >= conf2):
+                result_conf2.append(det)
+                continue
+            discarded.append(det)
+            continue
 
-    return False
+        result_conf.append(det)
+
+    return result_conf, result_conf2, discarded

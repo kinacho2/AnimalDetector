@@ -201,7 +201,7 @@ class SpeciesNetClassifier:
         return self.batch_predict([filepath], [img])[0]
 
     def batch_predict(
-        self, filepaths: list[str], imgs: list[Optional[PreprocessedImage]], bboxes: list[Optional[BBox]]
+        self, filepaths: list[str], imgs: list[Optional[PreprocessedImage]], bboxes: list[Optional[BBox]], confs: list[str]
     ) -> list[dict[str, Any]]:
         """Runs inference on a batch of preprocessed images.
 
@@ -225,7 +225,8 @@ class SpeciesNetClassifier:
         inference_filepaths = []
         batch_arr = []
         bboxes_arr = []
-        for filepath, img, bbox in zip(filepaths, imgs, bboxes):
+        confs_arr = []
+        for filepath, img, bbox, conf in zip(filepaths, imgs, bboxes, confs):
             if img is None:
                 predictions[filepath] = {
                     "filepath": filepath,
@@ -235,6 +236,7 @@ class SpeciesNetClassifier:
                 inference_filepaths.append(filepath)
                 batch_arr.append(img.arr / 255)
                 bboxes_arr.append(bbox)
+                confs_arr.append(conf)
         if not batch_arr:
             return list(predictions.values())
         batch_arr = np.stack(batch_arr, axis=0, dtype=np.float32)
@@ -242,15 +244,16 @@ class SpeciesNetClassifier:
         batch_tensor = torch.from_numpy(batch_arr).to(self.device)
         logits = self.model(batch_tensor).cpu()
         scores = torch.softmax(logits, dim=-1)
-        scores, indices = torch.topk(scores, k=5, dim=-1)
+        scores, indices = torch.topk(scores, k=3, dim=-1)
 
-        for file_idx, (filepath, scores_arr, indices_arr, bbox) in enumerate(
-            zip(inference_filepaths, scores.numpy(), indices.numpy(), bboxes_arr)
+        for file_idx, (filepath, scores_arr, indices_arr, bbox, conf) in enumerate(
+            zip(inference_filepaths, scores.numpy(), indices.numpy(), bboxes_arr, confs_arr)
         ):
 
             predictions[(filepath, bbox)] = {
                 "filepath": filepath,
                 "bbox": (bbox.xmin, bbox.ymin, bbox.width, bbox.height),
+                "det_conf": conf,
                 "classifications": {
                     "classes": [self.labels[idx] for idx in indices_arr],
                     "scores": scores_arr.tolist(),
