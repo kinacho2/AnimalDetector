@@ -11,6 +11,20 @@ class FileData:
     name: str
     detections: list
 
+def from_filepath(filepath):
+    path = Path(filepath)
+
+    file = FileData(
+        path = path,
+        name_w_ext = path.name,
+        ext = path.suffix,
+        folder = path.parent,
+        name = path.stem,
+        detections=[]
+    )
+
+    return file
+
 def process_result(result):
     path = Path(result["file"])
 

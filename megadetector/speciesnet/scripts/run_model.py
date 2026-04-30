@@ -461,11 +461,6 @@ def classify(image_paths, detections) -> dict:
             predictions_json=_PREDICTIONS_JSON.value,
         )
 
-    if predictions_dict is not None:
-        print(
-            "Predictions:\n"
-            + json.dumps(predictions_dict, ensure_ascii=False, indent=4)
-        )
 
     return predictions_dict
 
