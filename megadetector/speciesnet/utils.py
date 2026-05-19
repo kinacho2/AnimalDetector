@@ -458,17 +458,22 @@ def load_partial_predictions(
     predictions_dict = load_json(predictions_json)
     for prediction in predictions_dict["predictions"]:
         filepath = prediction["filepath"]
-        if filepath not in target_filepaths:
-            raise RuntimeError(
-                f"Filepath from loaded predictions is missing from the set of "
-                f"instances to process: `{filepath}`. Make sure you're resuming "
-                f"the work using the same set of instances."
-            )
 
         if "failures" in prediction:
             continue
+        if filepath not in target_filepaths:
+            print("Error, no se encontro la prediccion")
+            #raise RuntimeError(
+            #    f"Filepath from loaded predictions is missing from the set of "
+            #    f"instances to process: `{filepath}`. Make sure you're resuming "
+            #    f"the work using the same set of instances."
+            #)
+        else:
+            partial_predictions[prediction["filepath"]] = prediction
+        #if "failures" in prediction:
+        #    continue
 
-        partial_predictions[prediction["filepath"]] = prediction
+        #partial_predictions[prediction["filepath"]] = prediction
 
     instances_to_process = [
         instance

@@ -39,6 +39,8 @@ def main():
     # Run the model on all images in the folder in order to clasify them
     results = load_and_run_detector_batch(model_name, folder)
 
+
+
     animals_05_dict = dict()
 
     for result in results:
@@ -69,11 +71,14 @@ def main():
     for directory in animals_05_dict:
 
         FLAGS = flags.FLAGS
-        folders_param = "--folders=\"" + folder + "\""
-        prediction_file = "--predictions_json=\"" + directory + "/predictions.json\""
-        FLAGS(["predictions_json", prediction_file])
-        FLAGS(["program_name", folders_param])
-        FLAGS(["program_name", "--classifier_only"])
+        prediction_file = str(Path(directory) / "predictions.json")
+
+        FLAGS([
+            "program_name",
+            f"--folders={folder}",
+            f"--predictions_json={prediction_file}",
+            "--classifier_only"
+        ])
 
         animals_05 = animals_05_dict[directory]
 
@@ -142,5 +147,14 @@ def main():
         json.dump(full_classification, f, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        print("\nPrograma finalizado correctamente.")
+    except Exception as e:
+        import traceback
+
+        print("\nOcurrió un error:")
+        traceback.print_exc()
+
+    input("\nPresioná Enter para cerrar...")
 

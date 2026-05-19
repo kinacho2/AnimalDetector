@@ -116,6 +116,13 @@ _PREDICTIONS_JSON = flags.DEFINE_string(
     "Output JSON file for storing computed predictions. If this file exists, only instances "
     "that are not already present in the output will be processed.",
 )
+"""
+_RUN_MODE = flags.DEFINE_enum(
+    "run_mode",
+    "multi_thread",
+    ["multi_thread", "multi_process"],
+    "Parallelism strategy.",
+)"""
 _RUN_MODE = flags.DEFINE_enum(
     "run_mode",
     "multi_thread",
@@ -255,7 +262,7 @@ def say_yes_to_continue(question: str, stop_message: str) -> bool:
     if user_input.lower() in ["yes", "y"]:
         return True
     else:
-        print(stop_message)
+        print(stop_message, flush=True)
         return False
 
 
@@ -311,7 +318,7 @@ def classify(image_paths, detections) -> dict:
             # When ignoring existing predictions, delete the file to ensure all instances
             # are reprocessed from scratch.
             if local_file_exists(_PREDICTIONS_JSON.value):
-                print(f"Deleting existing predictions in `{_PREDICTIONS_JSON.value}`.")
+                print(f"Deleting existing predictions in `{_PREDICTIONS_JSON.value}`.", flush=True)
                 Path(_PREDICTIONS_JSON.value).unlink()
         else:
             partial_predictions, _ = load_partial_predictions(
@@ -352,14 +359,14 @@ def classify(image_paths, detections) -> dict:
                     f"--{_PREDICTIONS_JSON.name}."
                 )
 
-    else:
-        if not say_yes_to_continue(
-            question="Continue without saving predictions to a JSON file?",
-            stop_message=(
-                f"Please provide an output filepath via --{_PREDICTIONS_JSON.name}."
-            ),
-        ):
-            return
+    #else:
+    #    if not say_yes_to_continue(
+    #        question="Continue without saving predictions to a JSON file?",
+    #        stop_message=(
+    #            f"Please provide an output filepath via --{_PREDICTIONS_JSON.name}."
+    #        ),
+    #    ):
+    #        return
 
     # If a list of target species is given, check that it exists
     if _TARGET_SPECIES_TXT.value is not None and not local_file_exists(
@@ -386,8 +393,11 @@ def classify(image_paths, detections) -> dict:
 
 
     # Set running mode.
-    run_mode: Literal["multi_thread", "multi_process"] = _RUN_MODE.value  # type: ignore
-    #mp.set_start_method("spawn")
+    run_mode: Literal["multi_thread", "multi_process"] = "multi_thread" #_RUN_MODE.value  # type: ignore
+    try:
+        mp.set_start_method("spawn")
+    except RuntimeError:
+        pass
 
     # Make predictions.
     model = SpeciesNet(
@@ -398,8 +408,9 @@ def classify(image_paths, detections) -> dict:
         # Uncomment the line below if you want to run your own custom ensembling
         # routine. And also, implement that routine! :-)
         # combine_predictions_fn=custom_combine_predictions_fn,
-        multiprocessing=(run_mode == "multi_process"),
+        multiprocessing = False #(run_mode == "multi_thread"),
     )
+    """
     if hasattr(model, "classifier") and not hasattr(model, "detector"):
         if (
             model.classifier.model_info.type_ == "always_crop"
@@ -428,6 +439,8 @@ def classify(image_paths, detections) -> dict:
                 stop_message=f"Please drop the --{_DETECTIONS_JSON.name} flag.",
             ):
                 return
+                """
+    """
     if _CLASSIFIER_ONLY.value:
         predictions_dict = model.classify(
             instances_dict=instances_dict,
@@ -460,8 +473,42 @@ def classify(image_paths, detections) -> dict:
             progress_bars=_PROGRESS_BARS.value,
             predictions_json=_PREDICTIONS_JSON.value,
         )
+         """
 
+    if _CLASSIFIER_ONLY.value:
+        predictions_dict = model.classify(
+            instances_dict=instances_dict,
+            detections_dict=detections_dict,
+            run_mode=run_mode,
+            batch_size=_BATCH_SIZE.value,
+            progress_bars=False,
+            predictions_json=None,
+            )
+    elif _DETECTOR_ONLY.value:
+        predictions_dict = model.detect(
+            instances_dict=instances_dict,
+            run_mode=run_mode,
+            progress_bars=False,
+            predictions_json=None,
+        )
 
+    elif _ENSEMBLE_ONLY.value:
+        predictions_dict = model.ensemble_from_past_runs(
+            instances_dict=instances_dict,
+            classifications_dict=classifications_dict,
+            detections_dict=detections_dict,
+            progress_bars=False,
+            predictions_json=None,
+        )
+
+    else:
+        predictions_dict = model.predict(
+            instances_dict=instances_dict,
+            run_mode=run_mode,
+            batch_size=_BATCH_SIZE.value,
+            progress_bars=False,
+            predictions_json=None,
+        )   
     return predictions_dict
 
 def bbox_to_tuple(bbox):

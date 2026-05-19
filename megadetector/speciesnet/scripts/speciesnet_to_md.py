@@ -203,7 +203,7 @@ def generate_md_results_from_predictions_json(
 
                         print(
                             "Warning: creating fake detection for non-blank whole-image classification"
-                        )
+                        , flush=True)
                         det_out = {}
                         all_unknown_detections.append(det_out)
 

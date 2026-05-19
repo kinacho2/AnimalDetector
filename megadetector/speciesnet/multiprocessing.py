@@ -23,6 +23,7 @@ SpeciesNet components using different parallelization strategies.
 __all__ = [
     "SpeciesNet",
 ]
+from queue import Empty
 
 import multiprocessing as mp
 from multiprocessing.managers import SyncManager
@@ -139,7 +140,7 @@ class Progress:
             rlock:
                 RLock object to use as the global tracking lock. Optional.
         """
-
+        
         tqdm.monitor_interval = 0
         if rlock:
             tqdm.set_lock(rlock)
@@ -180,6 +181,7 @@ class Progress:
                 mininterval=0,
                 colour="#01b2b2",
             )
+        
 
     def update(self, name: str) -> None:
         """Updates individual tracker.
@@ -191,13 +193,13 @@ class Progress:
 
         if name in self._pbars:
             self._pbars[name].update()
-
+        
     def stop(self) -> None:
         """Stops progress tracking."""
 
         for pbar in self._pbars.values():
             pbar.close()
-
+        
 
 def _prepare_detector_input(
     detector: SpeciesNetDetector,
@@ -285,8 +287,9 @@ def _prepare_classifier_input(
             cropimg = classifier.preprocess(img, bboxes=bboxes, index=i)
             classifier_queue.put((filepath, cropimg, bboxes[i], confs[i]))
         except:
-            classifier_queue.put((filepath, None, bboxes))
+            classifier_queue.put((filepath, None, bboxes[i], confs[i]))
             raise
+    classifier_queue.put(None)
 
 
 def _run_classifier(
@@ -311,15 +314,63 @@ def _run_classifier(
             Batch size for inference.
 
     """
-    input_tuples = [input_queue.get() for _ in range(batch_size)]
+    input_tuples = []
 
-    filepaths = [t[0] for t in input_tuples]
-    imgs = [t[1] for t in input_tuples]
-    bboxes = [t[2] for t in input_tuples]
-    confs = [t[3] for t in input_tuples]
-    predictions = classifier.batch_predict(filepaths, imgs, bboxes, confs)
-    for filepath, bbox, prediction in zip(filepaths, bboxes, predictions):
+    for _ in range(batch_size):
+
+        try:
+            item = input_queue.get(timeout=5)
+
+            if item is None:
+                print("SENTINEL RECIBIDO", flush=True)
+                break
+
+            input_tuples.append(item)
+
+        except Empty:
+            print("QUEUE VACIA", flush=True)
+            break
+
+    filepaths = [t[0] for t in input_tuples if t[0] is not None]
+    imgs = [t[1] for t in input_tuples if t[1] is not None]
+    bboxes = [t[2] for t in input_tuples if t[2] is not None]
+    confs = [t[3] for t in input_tuples if t[3] is not None]
+    #predictions = classifier.batch_predict(filepaths, imgs, bboxes, confs)
+    try:
+
+        predictions = classifier.batch_predict(
+            filepaths,
+            imgs,
+            bboxes,
+            confs
+        )
+
+    except Exception as e:
+
+        print("\n========================")
+        print("ERROR REAL EN CLASSIFIER")
+        print("========================\n")
+
+        import traceback
+        traceback.print_exc()
+
+        print("\nFILEPATHS DEL BATCH:\n")
+
+        for fp in filepaths:
+            print(fp)
+
+        raise
+    #for filepath, bbox, prediction in zip(filepaths, bboxes, predictions):
+    #    results_dict[(filepath, bbox)] = prediction
+    for i, (filepath, bbox, prediction) in enumerate(zip(filepaths, bboxes, predictions)):
+
+        print(f"ANTES write {i}", flush=True)
+
         results_dict[(filepath, bbox)] = prediction
+
+        print(f"DESPUES write {i}", flush=True)
+
+    print("FIN _run_classifier", flush=True)
 
 
 def _find_admin1_region(  # pylint: disable=too-many-positional-arguments
@@ -872,13 +923,9 @@ class SpeciesNet:
         classifier_pool = new_pool_fn(
             1
         )  # One single worker to run classifier inference.
-        detector_queue = new_queue_fn(
-            max(2 * batch_size, 64)
-        )  # Limited number of images to store in memory.
+        detector_queue = new_queue_fn()  # Limited number of images to store in memory.
         bboxes_queue = new_queue_fn()  # Unlimited number of bboxes to store in memory.
-        classifier_queue = new_queue_fn(
-            max(2 * batch_size, 64)
-        )  # Limited number of images to store in memory.
+        classifier_queue = new_queue_fn()  # Limited number of images to store in memory.
 
         # Run a bunch of small tasks asynchronously.
         for instance in instances_to_process:
@@ -959,7 +1006,7 @@ class SpeciesNet:
     def _predict_using_thread_pools(
         self,
         instances_dict: dict,
-        batch_size: int = 8,
+        batch_size: int = 1,
         progress_bars: bool = False,
         predictions_json: Optional[StrPath] = None,
     ) -> Optional[dict]:
@@ -1103,17 +1150,31 @@ class SpeciesNet:
 
         # Wait for all workers to finish.
         classifier_pool.close()
+        print(f"classifier pool closed", flush=True)
         common_pool.close()
+        print(f"common pool closed", flush=True)
+            
         common_pool.join()
+        print(f"common pool joined", flush=True)
         classifier_pool.join()
+        print(f"clssifier pool joined", flush=True)
+        
+        print("classifier alive:", flush=True)
 
+        print("common alive:", flush=True)
+
+        for p in common_pool._pool:
+            print(p.pid, p.is_alive(), flush=True)
         # Stop progress tracking.
+
+        classifier_pool.join()
+        print(f"clssifier pool joined", flush=True)
+        
         progress.stop()
 
         # Stop the periodic saver if an output file was specified.
         if predictions_json:
             _stop_periodic_results_saving(periodic_saver)
-
         # Return predictions.
         return [classifier_results[(path, box)] for (path, box) in classifier_results]
 
@@ -1125,6 +1186,7 @@ class SpeciesNet:
         progress_bars: bool = False,
         predictions_json: Optional[StrPath] = None,
     ) -> Optional[dict]:
+        print("classifier with thread pools", flush=True)
         return self._classify_using_worker_pools(
             instances_dict,
             detections_dict=detections_dict,
@@ -1146,6 +1208,7 @@ class SpeciesNet:
         predictions_json: Optional[StrPath] = None,
     ) -> Optional[dict]:
         assert self.manager is not None
+        print("classifier using process pools", flush=True)
         return self._classify_using_worker_pools(
             instances_dict,
             detections_dict=detections_dict,

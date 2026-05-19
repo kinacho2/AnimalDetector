@@ -180,7 +180,7 @@ def _validate_taxon_string(taxon: str) -> bool:
     tokens = taxon.split(";")
 
     if (not isinstance(taxon, str)) or (len(tokens) != 5):
-        print(f"Invalid taxon string {taxon} in geofence")
+        print(f"Invalid taxon string {taxon} in geofence", flush=True)
         return False
 
     # You can't specify, e.g., a species without a genus
@@ -230,7 +230,7 @@ def validate_geofence(geofence: dict[str, dict]) -> bool:
     """
 
     if not isinstance(geofence, dict):
-        print("Invalid geofence type")
+        print("Invalid geofence type", flush=True)
         return False
 
     # Basic format validation
@@ -246,21 +246,21 @@ def validate_geofence(geofence: dict[str, dict]) -> bool:
             if (not isinstance(rule_type, str)) or (
                 rule_type not in ("allow", "block")
             ):
-                print(f"Invalid rule type {rule_type} for taxon {taxon}")
+                print(f"Invalid rule type {rule_type} for taxon {taxon}", flush=True)
                 return False
 
             countries = taxon_rules[rule_type]
 
             for country_code in countries.keys():
                 if (not isinstance(country_code, str)) or (len(country_code) != 3):
-                    print(f"Invalid country code {country_code} for taxon {taxon}")
+                    print(f"Invalid country code {country_code} for taxon {taxon}", flush=True)
                     return False
                 regions = countries[country_code]
                 if not isinstance(regions, list):
-                    print(f"Invalid rules for {country_code} for taxon {taxon}")
+                    print(f"Invalid rules for {country_code} for taxon {taxon}", flush=True)
                     return False
                 if not all([isinstance(x, str) for x in regions]):
-                    print(f"Invalid regions for {country_code} for taxon {taxon}")
+                    print(f"Invalid regions for {country_code} for taxon {taxon}", flush=True)
                     return False
 
     # Make sure that if a taxon is explicitly allowed in a region, all of its parents
@@ -550,7 +550,7 @@ def propagate_rules(geofence: dict[str, dict], labels_path: str) -> dict[str, di
                     "Adding block rule to {} because of parent {}".format(
                         label, taxon_with_block_rule
                     )
-                )
+                , flush=True)
 
                 if label not in new_block_rules:
                     new_block_rules[label] = {}
@@ -561,7 +561,7 @@ def propagate_rules(geofence: dict[str, dict], labels_path: str) -> dict[str, di
                     new_block_rules[label]["block"],
                 )
 
-    print(f"Adding {len(new_block_rules)} new block rules during propagation")
+    print(f"Adding {len(new_block_rules)} new block rules during propagation", flush=True)
 
     for label in new_block_rules:
         if label not in new_geofence or "block" not in new_geofence[label]:
@@ -623,7 +623,7 @@ def download_wildlife_insights_taxonomy(
         output_path = os.path.join(wi_temp_path, "wi_taxonomy.json")
 
     if os.path.isfile(output_path) and (not overwrite):
-        print(f"Bypassing download of existing file {output_path}")
+        print(f"Bypassing download of existing file {output_path}", flush=True)
         return output_path
 
     response = requests.get(wildlife_insights_taxonomy_url, stream=True, timeout=600)
@@ -744,7 +744,7 @@ def generate_release_taxonomy_from_label_list(
         # If there is no value for the class, this is not an animal, it's
         # something like "fire" or "no cv result"
         if len(fields[0]) == 0:
-            print(f"Skipping non-animal taxon {item['commonNameEnglish']}")
+            print(f"Skipping non-animal taxon {item['commonNameEnglish']}", flush=True)
             continue
 
         # This is a five-token taxon string
@@ -766,7 +766,7 @@ def generate_release_taxonomy_from_label_list(
                         item["commonNameEnglish"],
                         taxon_string,
                     )
-                )
+                , flush=True)
                 five_token_taxon_string_to_wi_taxon_info[taxon_string] = item
         else:
             five_token_taxon_string_to_wi_taxon_info[taxon_string] = item
@@ -796,15 +796,15 @@ def generate_release_taxonomy_from_label_list(
         assert len(tokens) == 7
         taxon_string = ";".join(tokens[1:6])
         if len(taxon_string.replace(";", "")) == 0:
-            print(f"Ignoring non-taxonomic string {seven_token_taxon_string}\n")
+            print(f"Ignoring non-taxonomic string {seven_token_taxon_string}\n", flush=True)
             non_taxonomic_strings_in_labels_file.add(seven_token_taxon_string)
             continue
         if taxon_string in five_token_taxon_strings_in_labels_file:
             print(
                 f"Warning: taxon {taxon_string} appears multiple times in the labels file:"
-            )
-            print(f"{seven_token_taxon_string}")
-            print(f"{five_token_taxon_strings_in_labels_file[taxon_string]}")
+            , flush=True)
+            print(f"{seven_token_taxon_string}", flush=True)
+            print(f"{five_token_taxon_strings_in_labels_file[taxon_string]}", flush=True)
             print("")
         five_token_taxon_strings_in_labels_file[taxon_string] = seven_token_taxon_string
 
@@ -841,7 +841,7 @@ def generate_release_taxonomy_from_label_list(
             if parent_taxon_string not in five_token_taxon_string_to_wi_taxon_info:
                 print(
                     f"Warning: expected taxon {parent_taxon_string} not in WI taxonomy"
-                )
+                , flush=True)
                 guid = str(uuid.uuid4())
                 taxon_info = {}
                 taxon_info["uniqueIdentifier"] = guid
@@ -867,7 +867,7 @@ def generate_release_taxonomy_from_label_list(
         "Adding {} new parent identifier strings".format(
             len(seven_token_parent_identifier_strings)
         )
-    )
+    , flush=True)
 
     # Merge the taxon strings from the labels file with the parent taxon strings
     # that we need to add
@@ -893,7 +893,7 @@ def generate_release_taxonomy_from_label_list(
         five_token_taxon_string = ";".join(tokens[1:-1])
         # Skip non-taxonomic entities
         if len(five_token_taxon_string.replace(";", "")) == 0:
-            print(f"Skipping non-taxonomic category {seven_token_taxon_string}")
+            print(f"Skipping non-taxonomic category {seven_token_taxon_string}", flush=True)
             continue
         if (five_token_taxon_string in five_token_taxon_to_seven_token_taxon) and (
             five_token_taxon_string not in known_duplicate_five_token_strings
@@ -934,7 +934,7 @@ def generate_release_taxonomy_from_label_list(
     # Sort taxa by name, rather than by GUID.
     output_taxa_sorted = sorted(output_taxa, key=lambda x: x.split(";")[1:])
 
-    print(f"Writing taxonomy file to {output_path}")
+    print(f"Writing taxonomy file to {output_path}", flush=True)
     with open(output_path, mode="w", encoding="utf-8") as f:
         for s in output_taxa_sorted:
             f.write(s + "\n")
